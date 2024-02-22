@@ -2,7 +2,9 @@
 #include <kbuild.h>
 #include <elf.h>
 #include <asm/ptrace.h>
+#include <asm/sbi.h>
 #include <asm/smp.h>
+#include <asm/sse.h>
 
 int main(void)
 {
@@ -57,6 +59,12 @@ int main(void)
 	OFFSET(SECONDARY_STVEC, secondary_data, stvec);
 	OFFSET(SECONDARY_FUNC, secondary_data, func);
 	DEFINE(SECONDARY_DATA_SIZE, sizeof(struct secondary_data));
+
+	OFFSET(SSE_HANDLER, sse_handler_arg, handler);
+	OFFSET(SSE_HANDLER_DATA, sse_handler_arg, handler_data);
+	OFFSET(SSE_HANDLER_STACK, sse_handler_arg, stack);
+	DEFINE(ASM_SBI_EXT_SSE, SBI_EXT_SSE);
+	DEFINE(ASM_SBI_EXT_SSE_COMPLETE, SBI_EXT_SSE_COMPLETE);
 
 	return 0;
 }
