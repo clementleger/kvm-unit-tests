@@ -60,6 +60,7 @@ int main(void)
 	OFFSET(SECONDARY_FUNC, secondary_data, func);
 	DEFINE(SECONDARY_DATA_SIZE, sizeof(struct secondary_data));
 
+	OFFSET(SSE_REG_TMP, sse_handler_arg, reg_tmp);
 	OFFSET(SSE_HANDLER, sse_handler_arg, handler);
 	OFFSET(SSE_HANDLER_DATA, sse_handler_arg, handler_data);
 	OFFSET(SSE_HANDLER_STACK, sse_handler_arg, stack);

@@ -12,6 +12,7 @@ endif
 
 tests =
 tests += $(TEST_DIR)/sbi.$(exe)
+tests += $(TEST_DIR)/sbi_sse.$(exe)
 tests += $(TEST_DIR)/selftest.$(exe)
 tests += $(TEST_DIR)/sieve.$(exe)
 

@@ -2,8 +2,11 @@
 #ifndef _ASMRISCV_SSE_H_
 #define _ASMRISCV_SSE_H_
 
+typedef void (*sse_handler_fn)(void *data, struct pt_regs *regs, unsigned int hartid);
+
 struct sse_handler_arg {
-	void (*handler)(void *data);
+	unsigned long reg_tmp;
+	sse_handler_fn handler;
 	void *handler_data;
 	void *stack;
 };
