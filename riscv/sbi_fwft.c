@@ -12,6 +12,15 @@
 #include <asm/ptrace.h>
 #include <asm/sbi.h>
 
+#define SR_SIE		0x00000002UL /* Supervisor Interrupt Enable */
+#define SR_MIE		0x00000008UL /* Machine Interrupt Enable */
+#define SR_SPIE		0x00000020UL /* Previous Supervisor IE */
+#define SR_MPIE		0x00000080UL /* Previous Machine IE */
+#define SR_SPP		0x00000100UL /* Previously Supervisor */
+#define SR_MPP		0x00001800UL /* Previously Machine */
+#define SR_SUM		0x00040000UL /* Supervisor User Memory Access */
+#define SR_SDT		0x01000000UL /* Supervisor Double Trap */
+
 #define RESERVED_CHECK_INCREMENT	10000
 
 static int fwft_set(unsigned long feature_id, unsigned long value,
@@ -119,6 +128,54 @@ static void fwft_check_misaligned(void)
 
 	report_prefix_pop();
 }
+
+static void break_handler(struct pt_regs *regs)
+{
+	csr_clear(CSR_SSTATUS, SR_SDT);
+
+	printf("Break\n");
+	regs->epc += 2;
+
+	csr_set(CSR_SSTATUS, SR_SDT);
+}
+
+static void fwft_check_double_trap(void)
+{
+	int ret;
+	unsigned long value;
+
+	report_prefix_push("dbltrp");
+	ret = fwft_get(SBI_FWFT_DOUBLE_TRAP_ENABLE, &value);
+	if (ret == SBI_ERR_NOT_SUPPORTED) {
+		report_skip("SBI_FWFT_DOUBLE_TRAP_ENABLE is supported");
+		return;
+	}
+	report(!ret, "Get double trap enable feature value");
+	if (ret)
+		return;
+
+	/* Disable double trap */
+	ret = fwft_set(SBI_FWFT_DOUBLE_TRAP_ENABLE, 0, 0);
+	report(!ret, "Set double trap enable feature value == 0");
+	ret = fwft_get(SBI_FWFT_DOUBLE_TRAP_ENABLE, &value);
+	report(value == 0, "Get double trap enable feature value == 0");
+
+	/* Enable double trap */
+	ret = fwft_set(SBI_FWFT_DOUBLE_TRAP_ENABLE, 1, 1);
+	report(!ret, "Set double trap enable feature value == 1");
+	ret = fwft_get(SBI_FWFT_DOUBLE_TRAP_ENABLE, &value);
+	report(value == 1, "Get double trap enable feature value == 1");
+	csr_clear(CSR_SSTATUS, SR_SDT);
+
+	install_exception_handler(EXC_BREAKPOINT, break_handler);
+
+	asm volatile ("ebreak\n");
+
+	report_pass("Trap first time ok");
+	asm volatile ("ebreak\n");
+	report_pass("Trap second time ok");
+
+	report_prefix_pop();
 }
 
 int main(int argc, char **argv)
@@ -138,6 +195,7 @@ int main(int argc, char **argv)
 	if (ret.value == 0)
 		goto done;
 
+	fwft_check_double_trap();
 	fwft_check_denied();
 	fwft_check_misaligned();
 done:
