@@ -212,14 +212,15 @@ secondary_entry:
 	REG_S	t6, PT_T6(a0)			// x31
 	csrr	a1, CSR_SEPC
 	REG_S	a1, PT_EPC(a0)
-	csrr	a1, CSR_SSTATUS
-	REG_S	a1, PT_STATUS(a0)
 	csrr	a1, CSR_STVAL
 	REG_S	a1, PT_BADADDR(a0)
 	csrr	a1, CSR_SCAUSE
 	REG_S	a1, PT_CAUSE(a0)
 	REG_L	a1, PT_ORIG_A0(a0)
 	REG_S	a1, PT_A0(a0)
+	li t0, 	SR_SDT
+	csrrc 	a1, CSR_SSTATUS, t0
+	REG_S	a1, PT_STATUS(a0)
 .endm
 
 /*
@@ -227,6 +228,8 @@ secondary_entry:
  * Also restores a0.
  */
 .macro restore_context
+	REG_L	a1, PT_STATUS(a0)
+	csrw	CSR_SSTATUS, a1
 	REG_L	ra, PT_RA(a0)			// x1
 	REG_L	sp, PT_SP(a0)			// x2
 	REG_L	gp, PT_GP(a0)			// x3
@@ -260,8 +263,6 @@ secondary_entry:
 	REG_L	t6, PT_T6(a0)			// x31
 	REG_L	a1, PT_EPC(a0)
 	csrw	CSR_SEPC, a1
-	REG_L	a1, PT_STATUS(a0)
-	csrw	CSR_SSTATUS, a1
 	REG_L	a1, PT_BADADDR(a0)
 	csrw	CSR_STVAL, a1
 	REG_L	a1, PT_CAUSE(a0)
