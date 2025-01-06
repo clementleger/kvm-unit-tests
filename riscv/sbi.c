@@ -33,6 +33,7 @@
 #define	HIGH_ADDR_BOUNDARY	((phys_addr_t)1 << 32)
 
 void check_sse(void);
+void check_fwft(void);
 
 static long __labs(long a)
 {
@@ -1454,6 +1455,7 @@ int main(int argc, char **argv)
 	check_dbcn();
 	check_susp();
 	check_sse();
+	check_fwft();
 
 	return report_summary();
 }
