@@ -57,6 +57,10 @@ sse_entry:
 	REG_L a0, SBI_SSE_REG_TMP(a7)
 	REG_S a0, PT_SP(sp)
 
+	/* Disable double trap */
+	li t0, SR_SDT
+	csrc CSR_SSTATUS, t0
+
 	REG_L t0, SBI_SSE_HANDLER(a7)
 	REG_L a0, SBI_SSE_HANDLER_DATA(a7)
 	mv a1, sp
@@ -65,8 +69,8 @@ sse_entry:
 
 	REG_L a1, PT_EPC(sp)
 	REG_L a2, PT_STATUS(sp)
-	csrw CSR_SEPC, a1
 	csrw CSR_SSTATUS, a2
+	csrw CSR_SEPC, a1
 
 	REG_L ra, PT_RA(sp)
 	REG_L s0, PT_S0(sp)
