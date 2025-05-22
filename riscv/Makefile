@@ -14,6 +14,7 @@ tests =
 tests += $(TEST_DIR)/sbi.$(exe)
 tests += $(TEST_DIR)/selftest.$(exe)
 tests += $(TEST_DIR)/sieve.$(exe)
+tests += $(TEST_DIR)/isa-dbltrp.$(exe)
 
 all: $(tests)
 
@@ -22,6 +23,8 @@ $(TEST_DIR)/sbi-deps += $(TEST_DIR)/sbi-fwft.o
 $(TEST_DIR)/sbi-deps += $(TEST_DIR)/sbi-sse.o
 
 all_deps += $($(TEST_DIR)/sbi-deps)
+
+$(TEST_DIR)/isa-dbltrp-deps = $(sse-objs)
 
 # When built for EFI sieve needs extra memory, run with e.g. '-m 256' on QEMU
 $(TEST_DIR)/sieve.$(exe): AUXFLAGS = 0x1

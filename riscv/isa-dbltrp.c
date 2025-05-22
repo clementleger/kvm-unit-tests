@@ -1,0 +1,190 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * SBI verification
+ *
+ * Copyright (C) 2023, Ventana Micro Systems Inc., Andrew Jones <ajones@ventanamicro.com>
+ */
+#include <alloc.h>
+#include <alloc_page.h>
+#include <libcflat.h>
+#include <stdlib.h>
+
+#include <asm/csr.h>
+#include <asm/page.h>
+#include <asm/processor.h>
+#include <asm/ptrace.h>
+#include <asm/sbi.h>
+
+#include <sbi-tests.h>
+
+static bool double_trap = false;
+static bool set_sdt = true;
+
+#define GEN_TRAP()								\
+do {										\
+	void *ptr = NULL;							\
+	unsigned long value = 0;						\
+	asm volatile(								\
+	"	.option push\n"							\
+	"	.option arch,-c\n"						\
+	"	sw %0, 0(%1)\n"							\
+	"	.option pop\n"							\
+	: : "r"(value), "r"(ptr) : "memory");					\
+} while (0)
+
+static void syscall_trap_handler(struct pt_regs *regs)
+{
+	if (set_sdt)
+		csr_set(CSR_SSTATUS, SR_SDT);
+
+	if (double_trap) {
+		double_trap = false;
+		GEN_TRAP();
+	}
+
+	/* Skip trapping instruction */
+	regs->epc += 4;
+}
+
+static bool sse_dbltrp_called = false;
+
+static void sse_dbltrp_handler(void *data, struct pt_regs *regs, unsigned int hartid)
+{
+	struct sbiret ret;
+	unsigned long flags;
+	unsigned long expected_flags = SBI_SSE_ATTR_INTERRUPTED_FLAGS_SSTATUS_SPP |
+				       SBI_SSE_ATTR_INTERRUPTED_FLAGS_SSTATUS_SDT;
+
+	ret = sbi_sse_read_attrs(SBI_SSE_EVENT_LOCAL_DOUBLE_TRAP, SBI_SSE_ATTR_INTERRUPTED_FLAGS, 1,
+				 &flags);
+	sbiret_report_error(&ret, SBI_SUCCESS, "Get double trap event flags");
+	report(flags == expected_flags, "SSE flags == 0x%lx", expected_flags);
+
+	sse_dbltrp_called = true;
+
+	/* Skip trapping instruction */
+	regs->epc += 4;
+}
+
+static void sse_double_trap(void)
+{
+	struct sbiret ret;
+
+	struct sbi_sse_handler_arg handler_arg = {
+		.handler = sse_dbltrp_handler,
+		.stack = alloc_page() + PAGE_SIZE,
+	};
+
+	report_prefix_push("sse");
+
+	ret = sbi_sse_hart_unmask();
+	if (!sbiret_report_error(&ret, SBI_SUCCESS, "SSE hart unmask ok"))
+		goto out;
+
+	ret = sbi_sse_register(SBI_SSE_EVENT_LOCAL_DOUBLE_TRAP, &handler_arg);
+	if (ret.error == SBI_ERR_NOT_SUPPORTED) {
+		report_skip("SSE double trap event is not supported");
+		goto out;
+	}
+	sbiret_report_error(&ret, SBI_SUCCESS, "SSE double trap register");
+
+	ret = sbi_sse_enable(SBI_SSE_EVENT_LOCAL_DOUBLE_TRAP);
+	if (!sbiret_report_error(&ret, SBI_SUCCESS, "SSE double trap enable"))
+		goto out_unregister;
+
+	/*
+	 * Generate a double crash so that an SSE event should be generated. The SPEC (ISA nor SBI)
+	 * does not explicitly tell that if supported it should generate an SSE event but that's
+	 * a reasonable assumption to do so if both FWFT and SSE are supported.
+	 */
+	set_sdt = true;
+	double_trap = true;
+	GEN_TRAP();
+
+	report(sse_dbltrp_called, "SSE double trap event generated");
+
+	ret = sbi_sse_disable(SBI_SSE_EVENT_LOCAL_DOUBLE_TRAP);
+	sbiret_report_error(&ret, SBI_SUCCESS, "SSE double trap disable");
+out_unregister:
+	ret = sbi_sse_unregister(SBI_SSE_EVENT_LOCAL_DOUBLE_TRAP);
+	sbiret_report_error(&ret, SBI_SUCCESS, "SSE double trap unregister");
+
+out:
+	sbi_sse_hart_mask();
+	free_page(handler_arg.stack - PAGE_SIZE);
+
+	report_prefix_pop();
+}
+
+static void check_double_trap(void)
+{
+	struct sbiret ret;
+
+	/* Disable double trap */
+	ret = sbi_fwft_set(SBI_FWFT_DOUBLE_TRAP, 0, 0);
+	sbiret_report_error(&ret, SBI_SUCCESS, "Set double trap enable feature value == 0");
+	ret = sbi_fwft_get(SBI_FWFT_DOUBLE_TRAP);
+	sbiret_report(&ret, SBI_SUCCESS, 0, "Get double trap enable feature value == 0");
+
+	install_exception_handler(EXC_STORE_PAGE_FAULT, syscall_trap_handler);
+
+	double_trap = true;
+	GEN_TRAP();
+	report_pass("Double trap disabled, trap first time ok");
+
+	/* Enable double trap */
+	ret = sbi_fwft_set(SBI_FWFT_DOUBLE_TRAP, 1, 1);
+	sbiret_report_error(&ret, SBI_SUCCESS, "Set double trap enable feature value == 1");
+	ret = sbi_fwft_get(SBI_FWFT_DOUBLE_TRAP);
+	if (!sbiret_report(&ret, SBI_SUCCESS, 1, "Get double trap enable feature value == 1"))
+		return;
+
+	/* First time, clear the double trap flag (SDT) so that it doesn't generate a double trap */
+	set_sdt = false;
+	double_trap = true;
+	GEN_TRAP();
+	report_pass("Trapped twice allowed ok");
+
+	if (sbi_probe(SBI_EXT_SSE)) {
+		sse_double_trap();
+	} else {
+		report_skip("SSE double trap event will not be tested, extension is not available");
+	}
+
+	/*
+	 * Second time, keep the double trap flag (SDT) and generate another trap, this should
+	 * generate a double trap. Since there is no SSE handler registered, it should crash to
+	 * M-mode.
+	 */
+	set_sdt = true;
+	double_trap = true;
+	report_info("Should generate a double trap and crash !");
+	GEN_TRAP();
+	report_fail("Should have crashed !");
+}
+
+int main(int argc, char **argv)
+{
+	struct sbiret ret;
+
+	report_prefix_push("dbltrp");
+
+	if (!sbi_probe(SBI_EXT_FWFT)) {
+		report_skip("FWFT extension is not available, can not enable double traps");
+		goto out;
+	}
+
+	ret = sbi_fwft_get(SBI_FWFT_DOUBLE_TRAP);
+	if (ret.value == SBI_ERR_NOT_SUPPORTED) {
+		report_skip("SBI_FWFT_DOUBLE_TRAP is not supported !");
+		goto out;
+	}
+
+	if (sbiret_report_error(&ret, SBI_SUCCESS, "SBI_FWFT_DOUBLE_TRAP get value"))
+		check_double_trap();
+
+out:
+	report_prefix_pop();
+
+	return report_summary();
+}
